@@ -1263,24 +1263,31 @@ class CharacterLauncher:
             if self.is_hairfix_manifest(file_path):
                 continue
 
-            if file_path.is_file() and file_path.suffix.casefold() in {".json", ".png"}:
+            if file_path.is_file() and file_path.suffix.casefold() == ".json":
                 names.add(file_path.stem)
 
         return names
 
+    def get_orphan_collection_preview_files(self):
+        preview_files = []
+
+        if not self.save_folder_exists() or not COLLECTIONS_PATH.exists():
+            return preview_files
+
+        for file_path in COLLECTIONS_PATH.iterdir():
+            if self.is_hairfix_manifest(file_path):
+                continue
+
+            if not file_path.is_file() or file_path.suffix.casefold() != ".png":
+                continue
+
+            if not file_path.with_suffix(".json").exists():
+                preview_files.append(file_path)
+
+        return sorted(preview_files, key=lambda item: item.stem.casefold())
+
     def get_map_save_names(self):
-        names = set()
-
-        if not self.save_folder_exists():
-            return names
-
-        for folder_name in self.MAP_SAVE_FOLDERS:
-            names.update(
-                self.get_save_file_names_from_folder(BASE_PATH / self.MAP_SAVE_PARENT_FOLDER / folder_name)
-            )
-            names.update(self.get_save_file_names_from_folder(BASE_PATH / folder_name))
-
-        return names
+        return self.get_save_file_names_from_folder(BASE_PATH / self.MAP_SAVE_PARENT_FOLDER)
 
     def get_customasset_names(self):
         names = set()
@@ -2360,19 +2367,21 @@ class CharacterLauncher:
         collection_names = self.get_collection_names()
         map_save_names = self.get_map_save_names()
         asset_names = self.get_customasset_names()
-        protected_names = collection_names | map_save_names
+        orphan_preview_files = self.get_orphan_collection_preview_files()
 
+        protected_names = collection_names | map_save_names
         asset_only = sorted(asset_names - protected_names, key=str.lower)
 
-        if not asset_only:
-            messagebox.showinfo("Checkup complete", "No orphan CustomAssets folders found.")
+        if not asset_only and not orphan_preview_files:
+            messagebox.showinfo("Checkup complete", "No orphan CustomAssets folders or preview files found.")
             return
 
         message = (
-            "Orphan CustomAssets folders were found.\n\n"
-            f"CustomAssets folders to move to the Recycle Bin: {len(asset_only)}\n\n"
-            "Collections and map save files will be preserved.\n\n"
-            "Do you want to move these CustomAssets folders to the Recycle Bin?"
+            "Orphan prop files were found.\n\n"
+            f"CustomAssets folders to move to the Recycle Bin: {len(asset_only)}\n"
+            f"Collections preview files to move to the Recycle Bin: {len(orphan_preview_files)}\n\n"
+            "Save .json files in Collections and MySaves will be preserved.\n\n"
+            "Do you want to move these orphan files to the Recycle Bin?"
         )
 
         confirm = messagebox.askyesno("Clear Custom Assets", message)
@@ -2381,6 +2390,7 @@ class CharacterLauncher:
             return
 
         deleted_asset_folders = 0
+        deleted_preview_files = 0
 
         try:
             for name in asset_only:
@@ -2392,15 +2402,21 @@ class CharacterLauncher:
 
                 self.selected.discard(name)
 
+            for preview_file in orphan_preview_files:
+                if preview_file.exists():
+                    self.send_to_recycle_bin(preview_file)
+                    deleted_preview_files += 1
+
             self.image_cache.clear()
             self.refresh_characters()
 
             messagebox.showinfo(
                 "Cleanup complete",
                 (
-                    "Orphan CustomAssets folders moved to the Recycle Bin!\n\n"
-                    "Collections and map save files were preserved.\n"
-                    f"Folders moved from CustomAssets: {deleted_asset_folders}"
+                    "Orphan prop files moved to the Recycle Bin!\n\n"
+                    "Save .json files in Collections and MySaves were preserved.\n"
+                    f"Folders moved from CustomAssets: {deleted_asset_folders}\n"
+                    f"Preview files moved from Collections: {deleted_preview_files}"
                 ),
             )
 
